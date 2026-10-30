@@ -11,12 +11,12 @@ MUTATIONS = {
         "pure def isFading(v: Voice): bool = v.fadeOut != None",
         'pure def isFading(v: Voice): bool = v.fadeOut != "none"'),
     "a misspelled record field": (
-        "f.until > t | None => true", "f.untill > t | None => true"),
+        "f.until <= t | None => false", "f.untill <= t | None => false"),
     "an int compared with a bool": (
         "presses < MaxPresses,", "presses < true,"),
     "a pure function that reads the clock": (
-        "pure def dispose(s: Machine, t: int): Machine =\n    val kept = s.voices.filter(v => match v.fadeOut { | Some(f) => f.until > t",
-        "pure def dispose(s: Machine, t: int): Machine =\n    val kept = s.voices.filter(v => match v.fadeOut { | Some(f) => f.until > now"),
+        "fadeDoneBy(v: Voice, t: int): bool = match v.fadeOut { | Some(f) => f.until <= t",
+        "fadeDoneBy(v: Voice, t: int): bool = match v.fadeOut { | Some(f) => f.until <= now"),
     "a reducer that writes state directly": (
         "pure def settle(s: Machine, t: int): Machine =\n    val d = dispose(s, t)\n    if (commitDue(d, t)) commit(d, t) else d",
         "action settleInPlace(t: int): bool = m' = dispose(m, t)\n  pure def settle(s: Machine, t: int): Machine =\n    if (settleInPlace(t)) s else s"),

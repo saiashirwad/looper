@@ -77,8 +77,6 @@ AudioMatchesIntent(s) ==
     THEN \E v \in Tail(s) : v.asset = s.intent.asset
     ELSE Tail(s) = {}
 
-Pending(s) == ~AudioMatchesIntent(s)
-
 \* The earliest boundary after `decided` that can still be scheduled at time t.
 \* A wakeup later than DecideAhead - Lead skips to the next boundary instead of
 \* scheduling into the past.
@@ -93,7 +91,7 @@ Target(s, t) ==
 \* the state, so no timer can belong to an element that no longer exists.
 Wakeups(s, t) ==
   {v.fadeEnd : v \in {w \in s.voices : w.fading}}
-  \cup (IF Pending(s) /\ s.grid # {} THEN {Target(s, t) - DecideAhead} ELSE {})
+  \cup (IF ~AudioMatchesIntent(s) /\ s.grid # {} THEN {Target(s, t) - DecideAhead} ELSE {})
 
 Alarm(s, t) == IF Wakeups(s, t) = {} THEN {} ELSE {Min(Wakeups(s, t))}
 
@@ -113,7 +111,7 @@ Dispose(s, t) ==
   IN [s EXCEPT !.voices = kept, !.grid = IF kept = {} THEN {} ELSE s.grid]
 
 CommitDue(s, t) ==
-  /\ Pending(s)
+  /\ ~AudioMatchesIntent(s)
   /\ IF s.grid = {} THEN TRUE ELSE t >= Target(s, t) - DecideAhead
 
 Commit(s, t) ==

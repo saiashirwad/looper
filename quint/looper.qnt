@@ -3,15 +3,15 @@
 module looper {
   // ---------------------------------------------------------------------------
   // Parameters. Instances at the bottom of the file pick the values.
-  const Tick: int
-  const Loop: int
-  const Lead: int
-  const DecideAhead: int
-  const Crossfade: int
-  const LongFade: int
-  const MaxLate: int
-  const MaxTime: int
-  const MaxPresses: int
+  const Tick: int         // grid spacing: changes land on multiples of Tick from the anchor
+  const Loop: int         // length of every loop, a multiple of Tick
+  const Lead: int         // the least distance into the future the audio engine can schedule
+  const DecideAhead: int  // how early a boundary is locked in; DecideAhead - Lead absorbs timer lateness
+  const Crossfade: int    // fade used between two patterns
+  const LongFade: int     // fade used when stopping into silence
+  const MaxLate: int      // how late the wakeup timer may fire
+  const MaxTime: int      // bound on the clock, for model checking only
+  const MaxPresses: int   // bound on presses, for model checking only
 
   assume orderings = and {
     Tick > DecideAhead, DecideAhead >= Lead, Lead > 0,
@@ -25,7 +25,7 @@ module looper {
   type Option[a] = Some(a) | None
 
   type Pattern = P1 | P2 | P3
-  type Variant = V1 | V2
+  type Variant = V1 | V2  // one "set" dimension; chord and strength behave identically
 
   type Asset = { pattern: Pattern, variant: Variant }
   type Intent = { asset: Asset, playing: bool }
@@ -53,6 +53,12 @@ module looper {
     s.fold(None, (acc, x) => match acc { | None => Some(x) | Some(y) => Some(if (x < y) x else y) })
 
   pure def isFading(v: Voice): bool = v.fadeOut != None
+
+  // Has the voice's fade-out begun / finished by time t? Both false while it is not fading.
+  pure def fadeStartedBy(v: Voice, t: int): bool = match v.fadeOut { | Some(f) => f.from <= t | None => false }
+  pure def fadeDoneBy(v: Voice, t: int): bool = match v.fadeOut { | Some(f) => f.until <= t | None => false }
+
+  // The voice that is not fading out, if any. At most one (singleTail).
   pure def tailOf(s: Machine): Set[Voice] = s.voices.filter(v => not(isFading(v)))
 
   pure def audioMatchesIntent(s: Machine): bool =
@@ -71,7 +77,8 @@ module looper {
     | VariantPress(v) => { ...intent, asset: { ...intent.asset, variant: v } }
   }
 
-  // The earliest boundary after `decided` that can still be scheduled at t.
+  // The earliest boundary after `decided` that can still be scheduled at t. A wakeup
+  // later than DecideAhead - Lead skips to the next boundary instead of scheduling into the past.
   pure def target(grid: Option[Grid], t: int): int = match grid {
     | None => t + Lead
     | Some(g) =>
@@ -81,7 +88,7 @@ module looper {
   }
 
   pure def dispose(s: Machine, t: int): Machine =
-    val kept = s.voices.filter(v => match v.fadeOut { | Some(f) => f.until > t | None => true })
+    val kept = s.voices.filter(v => not(fadeDoneBy(v, t)))
     { ...s, voices: kept, grid: if (kept == Set()) None else s.grid }
 
   pure def commitDue(s: Machine, t: int): bool = and {
@@ -109,17 +116,19 @@ module looper {
     val d = dispose(s, t)
     if (commitDue(d, t)) commit(d, t) else d
 
+  // Every time at which settle has something to do. The driver keeps exactly one timer,
+  // armed for the earliest of these after each event.
   pure def wakeups(s: Machine, t: int): Set[int] =
-    fadeEnds(s).union(
-      if (not(audioMatchesIntent(s)) and s.grid != None) Set(target(s.grid, t) - DecideAhead) else Set())
+    val deadline = if (not(audioMatchesIntent(s)) and s.grid != None) Set(target(s.grid, t) - DecideAhead) else Set()
+    fadeEnds(s).union(deadline)
 
   // ---------------------------------------------------------------------------
-  // The environment
+  // The environment: a user, a clock, and a timer that may be late
   var m: Machine
-  var now: int
-  var alarm: Option[int]
-  var presses: int
-  var lastPressAt: int
+  var now: int           // audio clock
+  var alarm: Option[int] // the driver's one armed timer
+  var presses: int       // presses so far (bound only)
+  var lastPressAt: int   // observer for respondsWithinBound; -1 before any press
   // The machine before the last step, so step properties can be plain invariants.
   var before: Machine
   var beforeNow: int
@@ -129,6 +138,7 @@ module looper {
     now' = 0, beforeNow' = 0, alarm' = None, presses' = 0, lastPressAt' = -1,
   }
 
+  // The machine moves to `after` and the timer is re-armed; the clock stands still.
   action react(after: Machine): bool = all {
     m' = after, before' = m, beforeNow' = now, alarm' = min(wakeups(after, now)), now' = now,
   }
@@ -147,18 +157,22 @@ module looper {
     lastPressAt' = lastPressAt,
   }
 
-  action timePasses = all {
-    now < MaxTime,
-    match alarm { | Some(a) => now < a + MaxLate | None => true },
-    now' = now + 1,
+  // Only the clock may change; everything else stays as it is.
+  action clockMovesTo(t: int): bool = all {
+    now' = t,
     m' = m, before' = m, beforeNow' = now,
     alarm' = alarm, presses' = presses, lastPressAt' = lastPressAt,
   }
 
+  action timePasses = all {
+    now < MaxTime,
+    match alarm { | Some(a) => now < a + MaxLate | None => true },
+    clockMovesTo(now + 1),
+  }
+
   action endOfCheckedTime = all {
     now == MaxTime,
-    m' = m, before' = m, beforeNow' = now,
-    now' = now, alarm' = alarm, presses' = presses, lastPressAt' = lastPressAt,
+    clockMovesTo(now),
   }
 
   action step = any {
@@ -172,43 +186,63 @@ module looper {
   // ---------------------------------------------------------------------------
   // What the listener hears
   pure def soundingAt(s: Machine, t: int): Set[Voice] =
-    s.voices.filter(v => v.startsAt <= t and match v.fadeOut { | None => true | Some(f) => t < f.until })
+    s.voices.filter(v => v.startsAt <= t and not(fadeDoneBy(v, t)))
 
   pure def atFullVolume(s: Machine, t: int): Set[Voice] =
-    s.voices.filter(v => v.startsAt + Crossfade <= t and match v.fadeOut { | None => true | Some(f) => t < f.from })
+    s.voices.filter(v => v.startsAt + Crossfade <= t and not(fadeStartedBy(v, t)))
 
   pure def hearsTheIntent(s: Machine, t: int): bool =
     val heard = soundingAt(s, t)
-    if (s.intent.playing) heard.size() == 1 and heard.forall(v => not(isFading(v)) and v.asset == s.intent.asset)
-    else heard == Set()
+    if (s.intent.playing)
+      heard.size() == 1 and heard.forall(v => not(isFading(v)) and v.asset == s.intent.asset)
+    else
+      heard == Set()
 
   // ---------------------------------------------------------------------------
-  // Invariants
+  // Invariants: true in every reachable state
   val singleTail = tailOf(m).size() <= 1
   val atMostTwoVoices = m.voices.size() <= 2
   val gridExistsExactlyWhileSomethingIsAlive = (m.grid == None) iff (m.voices == Set())
+
+  // Every voice starts on the grid, at the loop position the grid implies, so all
+  // loops stay phase-locked to the first one.
   val everyVoiceIsOnTheGrid = match m.grid {
     | None => true
-    | Some(g) => m.voices.forall(v => (v.startsAt - g.anchor) % Tick == 0 and v.offset == (v.startsAt - g.anchor) % Loop)
+    | Some(g) => m.voices.forall(v => {
+        val sinceAnchor = v.startsAt - g.anchor
+        sinceAnchor % Tick == 0 and v.offset == sinceAnchor % Loop
+      })
   }
+
+  // Two loops are never both at full volume; overlap only happens inside a fade.
   val neverTwoLoopsAtFullVolume = atFullVolume(m, now).size() <= 1
 
+  // Stop pressing, and within a fixed time you hear exactly what you selected: a press just
+  // after a boundary was locked waits one tick for the next one, then the fade has to finish.
   pure val ResponseBound = DecideAhead + Tick + LongFade
-  val respondsWithinBound = (lastPressAt >= 0 and now >= lastPressAt + ResponseBound) implies hearsTheIntent(m, now)
+  val respondsWithinBound =
+    (lastPressAt >= 0 and now >= lastPressAt + ResponseBound) implies hearsTheIntent(m, now)
 
-  // Step properties, over (before, m)
+  // ---------------------------------------------------------------------------
+  // Step properties: true of every transition, written over (before, m)
   pure def ids(vs: Set[Voice]): Set[int] = vs.map(v => v.id)
 
+  // A voice is only ever removed after its fade-out has finished: no clicks.
   val noVoiceIsCut = before.voices.forall(v =>
-    not(ids(m.voices).contains(v.id)) implies match v.fadeOut { | None => false | Some(f) => f.until <= beforeNow })
+    not(ids(m.voices).contains(v.id)) implies fadeDoneBy(v, beforeNow))
 
+  // Everything newly scheduled, start or fade, is at least Lead in the future.
   val nothingIsScheduledTooLate = m.voices.forall(v =>
-    if (not(ids(before.voices).contains(v.id))) v.startsAt >= beforeNow + Lead
-    else before.voices.forall(old => (old.id == v.id and not(isFading(old))) implies match v.fadeOut {
-      | None => true
-      | Some(f) => f.from >= beforeNow + Lead
-    }))
+    if (not(ids(before.voices).contains(v.id)))
+      v.startsAt >= beforeNow + Lead
+    else
+      before.voices.forall(old => (old.id == v.id and not(isFading(old))) implies match v.fadeOut {
+        | None => true
+        | Some(f) => f.from >= beforeNow + Lead
+      }))
 
+  // Scheduled audio is never rewritten. The only change a live voice may see is
+  // gaining a fade-out it did not have.
   val scheduledAudioIsImmutable = m.voices.forall(v => before.voices.forall(old =>
     old.id == v.id implies (v == old or (not(isFading(old)) and { ...v, fadeOut: None } == old))))
 
