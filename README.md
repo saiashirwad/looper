@@ -47,12 +47,13 @@ nextWakeup(state, now) -> time | null       // one timer
 ## Verification
 
 - **`bun test`** — runs scenario tests and 5,000 random sessions on real constants, checking all nine properties.
+- **`bun run conformance`** (also part of `bun test`) — has Quint generate 500 random runs of the spec, replays each one through `src/model.ts`, and checks both are in the same state after every step. Skipped if `quint` isn't installed.
 - **`tla/check.sh`** — runs TLC on every `tla/Looper*.cfg` and checks each result matches what's expected. One finding: a fade longer than two ticks needs a third voice, which breaks `AtMostTwoVoices`.
 - **`quint/check.sh`** — runs `quint typecheck`, `quint test`, `quint run`, and `quint verify` (TLC backend), then `quint/mutations.py`.
 
 Mutation testing: Quint's type checker rejects all 7 deliberate mistakes in `quint/mutations.py`. With `tla/mutations.py`, SANY accepts all 3 and TLC catches only 2; the third slips through silently.
 
-**Layout (short):** `src/` (model/driver/synth/main), `test/` (model + properties), `tla/`, `quint/`, `index.html`.
+**Layout (short):** `src/` (model/driver/synth/main), `test/` (model, properties, Quint conformance), `tla/`, `quint/`, `index.html`.
 
 ## Requirements
 

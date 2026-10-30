@@ -5,6 +5,7 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "conformance": "bun test test/quint-conformance.test.ts",
     "tla": "tla/check.sh",
     "quint": "quint/check.sh",
     "build": "bun build ./index.html --outdir dist",
