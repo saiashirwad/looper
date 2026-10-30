@@ -1,0 +1,18 @@
+{
+  "name": "looper",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "tla": "tla/check.sh",
+    "quint": "quint/check.sh",
+    "build": "bun build ./index.html --outdir dist",
+    "check": "bun run typecheck && bun test && bun run tla && bun run quint",
+    "dev": "bun ./index.html"
+  },
+  "devDependencies": {
+    "@types/bun": "1.2.21",
+    "typescript": "5.9.2"
+  }
+}

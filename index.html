@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Looper</title>
+<style>
+  :root { --bg: #f6f5f2; --fg: #1d1d1b; --muted: #77756f; --line: #d9d6cf; --accent: #2f6b4f; --accent-soft: #dcebe2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --fg: #ecebe7; --muted: #94918a; --line: #34332f; --accent: #7fc4a0; --accent-soft: #23362b; }
+  }
+  body { margin: 0; padding: 32px 16px; background: var(--bg); color: var(--fg); font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; display: grid; gap: 20px; }
+  h1 { font-size: 20px; margin: 0; }
+  p { margin: 0; color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+  button { position: relative; min-width: 52px; padding: 10px 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  button.selected { border-color: var(--accent); }
+  button.playing { background: var(--accent-soft); }
+  kbd { position: absolute; right: 5px; bottom: 2px; font-size: 10px; color: var(--muted); }
+  pre { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; font-size: 13px; min-height: 3em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Looper</h1>
+  <p>Press a pattern to start, the same one again to stop. Chords and strengths change the loop on the next beat.</p>
+  <div><div class="label">Pattern</div><div class="row" id="patterns"></div></div>
+  <div><div class="label">Chord</div><div class="row" id="chords"></div></div>
+  <div><div class="label">Strength</div><div class="row" id="strengths"></div></div>
+  <div><div class="label">Voices <span id="now"></span></div><pre id="voices">silence</pre></div>
+</main>
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>
